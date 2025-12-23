@@ -1,9 +1,4 @@
-import asyncio
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Update
-)
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -11,118 +6,126 @@ from telegram.ext import (
     ContextTypes
 )
 
-TOKEN = "8234047242:AAEOA0hB1CKe9niXifIq5snhc2xXlMbZzIk"
+BOT_TOKEN = "8234047242:AAEOA0hB1CKe9niXifIq5snhc2xXlMbZzIk"
 
 frames = {
     "TBS Source One V5": {"price": 4500, "weight": 120, "material": "карбон"},
     "iFlight XL5 V5": {"price": 5000, "weight": 130, "material": "карбон"},
-    "AOS 5 O3": {"price": 7500, "weight": 140, "material": "карбон"},
-    "DJI F450": {"price": 3000, "weight": 200, "material": "пластик"}
+    "DJI F450": {"price": 3000, "weight": 200, "material": "пластик"},
 }
 
 propellers = {
     "Gemfan 51466": {"price": 500, "weight": 20, "material": "пластик"},
     "HQProp Ethix P5": {"price": 600, "weight": 22, "material": "пластик"},
-    "Gemfan Carbon": {"price": 1800, "weight": 18, "material": "карбон"}
 }
 
 batteries = {
     "CNHL 1500mAh 4S": {"price": 3000, "flight_time": 10},
-    "Tattu 1300mAh 6S": {"price": 5000, "flight_time": 8},
-    "Li-Ion 3000mAh": {"price": 800, "flight_time": 15}
+    "Li-Ion 3000mAh": {"price": 800, "flight_time": 15},
 }
 
 chips = {
     "Mamba F405": {"price": 5000},
-    "Holybro F7": {"price": 8000}
+    "Holybro F7": {"price": 8000},
 }
 
 cameras = {
     "RunCam Nano 3": {"price": 3500, "resolution": "1080p"},
-    "Foxeer Predator": {"price": 7500, "resolution": "4K"}
+    "Foxeer Predator": {"price": 7500, "resolution": "4K"},
 }
 
-def make_keyboard(data: dict, prefix: str):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(text=name, callback_data=f"{prefix}|{name}")]
-        for name in data
-    ])
+STEPS = [
+    ("frame", frames, "🧱 Выберите раму"),
+    ("prop", propellers, "🌀 Выберите пропеллеры"),
+    ("bat", batteries, "🔋 Выберите батарею"),
+    ("chip", chips, "🖥️ Выберите контроллер"),
+    ("cam", cameras, "📷 Выберите камеру"),
+]
+
+def build_keyboard(data, prefix):
+    keyboard = []
+    for i, name in enumerate(data):
+        keyboard.append(
+            [InlineKeyboardButton(name, callback_data=f"{prefix}_{i}")]
+        )
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main")])
+    return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    context.user_data["step"] = 0
+
+    step_key, data, title = STEPS[0]
+    context.user_data[step_key] = data
+
     await update.message.reply_text(
-        "🚁 *Конфигуратор FPV-дрона*\n\nВыберите раму:",
-        reply_markup=make_keyboard(frames, "frame"),
-        parse_mode="Markdown"
+        title,
+        reply_markup=build_keyboard(data, step_key)
     )
 
-async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    data = query.data
 
-    prefix, value = query.data.split("|", 1)
+    if data == "main":
+        await start(update, context)
+        return
 
-    if prefix == "frame":
-        context.user_data["frame"] = value
+    step = context.user_data.get("step", 0)
+
+    step_key, step_data, _ = STEPS[step]
+
+    if not data.startswith(step_key):
+        await query.edit_message_text("Ошибка выбора")
+        return
+
+    index = int(data.split("_")[1])
+    selected_name = list(step_data.keys())[index]
+
+    context.user_data[step_key + "_selected"] = selected_name
+    context.user_data["step"] += 1
+
+    if context.user_data["step"] < len(STEPS):
+        next_step_key, next_data, next_title = STEPS[context.user_data["step"]]
         await query.edit_message_text(
-            "🌀 Выберите пропеллеры:",
-            reply_markup=make_keyboard(propellers, "prop")
+            next_title,
+            reply_markup=build_keyboard(next_data, next_step_key)
         )
+        return
 
-    elif prefix == "prop":
-        context.user_data["prop"] = value
-        await query.edit_message_text(
-            "🔋 Выберите батарею:",
-            reply_markup=make_keyboard(batteries, "bat")
-        )
+    f = frames[context.user_data["frame_selected"]]
+    p = propellers[context.user_data["prop_selected"]]
+    b = batteries[context.user_data["bat_selected"]]
+    c = chips[context.user_data["chip_selected"]]
+    cam = cameras[context.user_data["cam_selected"]]
 
-    elif prefix == "bat":
-        context.user_data["bat"] = value
-        await query.edit_message_text(
-            "🖥️ Выберите контроллер:",
-            reply_markup=make_keyboard(chips, "chip")
-        )
+    total_price = f["price"] + p["price"] + b["price"] + c["price"] + cam["price"]
+    total_weight = f["weight"] + p["weight"]
 
-    elif prefix == "chip":
-        context.user_data["chip"] = value
-        await query.edit_message_text(
-            "📷 Выберите камеру:",
-            reply_markup=make_keyboard(cameras, "cam")
-        )
+    text = (
+        "🚁 <b>Ваш дрон собран!</b>\n\n"
+        f"💰 Цена: <b>{total_price} ₽</b>\n"
+        f"⚖️ Вес: <b>{total_weight} г</b>\n"
+        f"⏱️ Полёт: <b>{b['flight_time']} мин</b>\n\n"
+        f"🧱 Рама: {context.user_data['frame_selected']} ({f['material']})\n"
+        f"🌀 Пропеллеры: {context.user_data['prop_selected']} ({p['material']})\n"
+        f"🔋 Батарея: {context.user_data['bat_selected']}\n"
+        f"🖥️ Контроллер: {context.user_data['chip_selected']}\n"
+        f"📷 Камера: {context.user_data['cam_selected']} ({cam['resolution']})"
+    )
 
-    elif prefix == "cam":
-        context.user_data["cam"] = value
-
-        f = frames[context.user_data["frame"]]
-        p = propellers[context.user_data["prop"]]
-        b = batteries[context.user_data["bat"]]
-        c = chips[context.user_data["chip"]]
-        cam = cameras[value]
-
-        total_price = f["price"] + p["price"] + b["price"] + c["price"] + cam["price"]
-        total_weight = f["weight"] + p["weight"]
-
-        text = (
-            "🚁 *Ваш дрон собран!*\n\n"
-            f"💰 Цена: *{total_price} ₽*\n"
-            f"⚖️ Вес (рама + пропы): *{total_weight} г*\n"
-            f"⏱️ Время полёта: *{b['flight_time']} мин*\n\n"
-            f"🧱 Рама: {context.user_data['frame']} ({f['material']})\n"
-            f"🌀 Пропеллеры: {context.user_data['prop']} ({p['material']})\n"
-            f"🔋 Батарея: {context.user_data['bat']}\n"
-            f"🖥️ Контроллер: {context.user_data['chip']}\n"
-            f"📷 Камера: {value} ({cam['resolution']})"
-        )
-
-        await query.edit_message_text(text, parse_mode="Markdown")
-
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callbacks))
-
-    app.run_polling()
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Собрать заново", callback_data="main")]
+        ])
+    )
 
 if name == "main":
-    main()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    print("Бот запущен...")
+    app.run_polling()
