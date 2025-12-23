@@ -116,13 +116,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(text, parse_mode="Markdown")
 
-async def main():
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callbacks))
 
-    await app.run_polling()
+    app.run_polling()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+if name == "main":
+    main()
